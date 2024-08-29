@@ -1,5 +1,6 @@
 import tkinter as tk
 from PIL import Image
+from lxml import etree
 a=tk.Tk()
 a.title("Where's My Water? Level Concatenator")
 a.resizable(1,0)
@@ -10,19 +11,19 @@ d=[]
 tk.Label(b,text='Output information').pack(anchor='w',padx=5)
 e=tk.Text(b,height=4)
 e.pack(fill='x',padx=5)
-tk.Label(b,text='The png of the destination level').pack(anchor='w',padx=5)
+tk.Label(b,text='The path of the png of the destination level').pack(anchor='w',padx=5)
 f=tk.Entry(b)
 f.pack(fill='x',padx=5)
-tk.Label(b,text='The xml of the destination level').pack(anchor='w',padx=5)
+tk.Label(b,text='The path of the xml of the destination level').pack(anchor='w',padx=5)
 g=tk.Entry(b)
 g.pack(fill='x',padx=5)
 def add():
  global c
- x=str(c)
+ x=f'{c}'
  x='th'if len(x)==2and x[0]=='1'else'st'if x[-1]=='1'else'nd'if x[-1]=='2'else'rd'if x[-1]=='3'else'th'
- d.append(tk.Label(b,text='The png of the '+str(c)+x+' source level'))
+ d.append(tk.Label(b,text=f'The path of the png of the {c}{x} source level'))
  d.append(tk.Entry(b))
- d.append(tk.Label(b,text='The xml of the '+str(c)+x+' source level'))
+ d.append(tk.Label(b,text=f'The path of the xml of the {c}{x} source level'))
  d.append(tk.Entry(b))
  d[-4].pack(anchor='w',padx=5)
  d[-3].pack(fill='x',padx=5)
@@ -31,63 +32,74 @@ def add():
  c+=1
 def delete():
  global c
- if len(d)==8:
-  return
- for x in range(4):
-  d[-1].destroy()
-  d.pop()
- c-=1
+ if len(d)!=8:
+  for x in range(4):
+   d.pop().destroy()
+  c-=1
 def generate():
  try:
-  x,y=zip(*[[y,y.size]for x in d[1::4]for y in[Image.open(x.get())]])
-  z=list(zip(*y))[1]
-  w,y,z=0,z,Image.new('RGB',[y[0][0],sum(z)])
+  x,y,s,t=[],[],[],[]
+  for z in d[1::4]:
+   z=Image.open(z.get())
+   x.append(z)
+   z=z.size
+   y.append(z[1])
+  w,z=0,Image.new('RGB',[z[0],sum(y)])
   for u,v in zip(x,y):
    z.paste(u,[0,w])
    w+=v
   z.save(f.get(),'png')
-  y=[0,*y]
-  w*=0.4
+  y.insert(0,0)
+  w*=.4
   for x,z in zip(range(1,len(y)),d[3::4]):
-   y[x]*=0.4
+   y[x]*=.4
    w-=y[x-1]+y[x]
-   z=open(z.get()).read()
-   v=z.find('<Object ')-1
-   while z[v]==' ':
-    v-=1
-   z=z[v+1:z.rfind('</Object>')+9].split('AbsoluteLocation')
-   for t in range(1,len(z)):
-    u=z[t].split('"',2)
-    v=u[1].split()
-    v[1]=str(float(v[1])+w)
-    u[1]=' '.join(v)
-    z[t]='"'.join(u)
-   z='AbsoluteLocation'.join(z)
-   for s in range(2):
-    for t in[['<Object'],['ConnectedConverter','ConnectedObject','ConnectedSpout','Parent']][s]:
-     z=z.split(t)
-     for u in range(1,len(z)):
-      v=z[u]
-      if v[0]not in'0123456789" ':
-       continue
-      v=v.split('"',s+1)
-      if v[-1].startswith('SWAMPY_SPOUT'):
-       continue
-      v[-1]=str(x)+'x'+v[-1]
-      z[u]='"'.join(v)
-     z=t.join(z)
-   y[x-1]=z
-  y.insert(0,'<?xml version="1.0"?>\n<Objects>')
-  y[-1]='</Objects>'
-  open(g.get(),'w').write('\n'.join(y))
+   z=open(z.get(),'rb').read().replace(b'\r\n',b'\n').replace(b'\r',b'\n')
+   for v in range(128,256):
+    z=z.replace(bytes([v]),b'BYTE'+hex(v)[2:].encode())
+   z=etree.fromstring(z)
+   for v in z.findall('./Room'):
+    s.append(etree.tostring(v))
+   for v in z.findall('./Properties'):
+    for u in v:
+     t.append(etree.tostring(u))
+   for v in z.findall('.//AbsoluteLocation'):
+    u=v.get('value').split()
+    v.set('value',f'{u[0]} {float(u[1])+w}')
+   for v in z.findall('.//Object'):
+    v.set('name',f"{x}x{v.get('name')}")
+   for v in z.findall('.//Properties'):
+    r=v.findall('.//Property[@name="PathIsGlobal"][@value="1"]')
+    for u in v:
+     q=u.get('name').strip('0123456789')
+     if q in['ConnectedConverter','ConnectedObject',
+     'ConnectedSpout','Parent']and u.get('value')!='SWAMPY_SPOUT':
+      u.set('value',f"{x}x{u.get('value')}")
+     elif r and q=='PathPos':
+      q=u.get('value').split()
+      u.set('value',f'{q[0]} {float(q[1])+w/.8}')
+   u=[]
+   for v in z:
+    if v.tag=='Object':
+     u.append(etree.tostring(v))
+   y[x-1]=b''.join(u)
+  y.insert(0,b'<Objects>\n  ')
+  y[-1]=s[-1]
+  y.append(b'  <Properties>\n    ')
+  y+=t
+  y.append(b'</Properties>\n</Objects>\n')
+  x=etree.tostring(etree.fromstring(b''.join(y)),pretty_print=1).split(b'BYTE')
+  for z in range(1,len(x)):
+   x[z]=bytes([int(x[z][:2],16)])+x[z][2:]
+  open(g.get(),'wb').write(b'<?xml version="1.0"?>\n'+b''.join(x))
   e['fg']='green'
   e.delete('1.0','end')
   e.insert('1.0','Success!')
  except BaseException as x:
   e['fg']='red'
   e.delete('1.0','end')
-  e.insert('1.0',x.__class__.__name__+': '+str(x)+' (Error code: '+'8'.join([y.append(w)if w else
-[oct(z.tb_lineno)[2:]for z in y]for y in[[x.__traceback__]]for z in y for w in[z.tb_next]][-1])+')')
+  e.insert('1.0',f'''{x.__class__.__name__}: {x} (Error code: {'8'.join([y.append(w)if w else
+[oct(z.tb_lineno)[2:]for z in y]for y in[[x.__traceback__]]for z in y for w in[z.tb_next]][-1])+')'}''')
 tk.Button(a,text='Generate',command=generate).pack(anchor='n',side='right',padx=5,pady=5)
 tk.Button(a,text='Delete level',command=delete).pack(anchor='n',side='right',pady=5)
 tk.Button(a,text='Add level',command=add).pack(anchor='n',side='right',padx=5,pady=5)
